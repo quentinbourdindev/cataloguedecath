@@ -1,0 +1,246 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum Role {
+  CLIENT
+  COMMERCIAL
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum BriefStatus {
+  DRAFT
+  SUBMITTED
+  REVIEWING
+  VALIDATED
+}
+
+enum PricingType {
+  UNIT // Prix à l'unité
+  SQM  // Prix au m²
+}
+
+enum ProductCategory {
+  VISUEL_EXTERIEUR
+  BACHE_LAMELLES_PVC
+  SIGNALETIQUES_SUSPENDUES
+  PANNEAUX_IMPRIMES
+  CLAUSTRAS_VERRIERES
+  REBOARD
+}
+
+// ─────────────────────────────────────────────
+// MODELS
+// ─────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String?
+  firstName     String?
+  lastName      String?
+  role          Role      @default(CLIENT)
+  isApproved    Boolean   @default(true)
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  stores        UserStore[]
+  briefs        Brief[]
+  connectionLogs ConnectionLog[]
+  accounts      Account[]
+  sessions      Session[]
+
+  @@map("users")
+}
+
+model Store {
+  id        String   @id @default(cuid())
+  name      String   // ex: "Decathlon Nancy"
+  address   String?
+  city      String?
+  zipCode   String?
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  users     UserStore[]
+  briefs    Brief[]
+
+  @@map("stores")
+}
+
+// Table de jonction User <-> Store (un user peut avoir plusieurs stores)
+model UserStore {
+  userId    String
+  storeId   String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store     Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, storeId])
+  @@map("user_stores")
+}
+
+model Product {
+  id          String          @id @default(cuid())
+  category    ProductCategory
+  name        String
+  description String?
+  // Dimensions par défaut (ex: "3.00 x 2.00")
+  defaultWidth  Float?
+  defaultHeight Float?
+  // Options disponibles (JSON array: ["recto", "recto-verso", "pelliculage mat"])
+  options       Json?
+  pricingType   PricingType   @default(UNIT)
+  unitPriceHT   Float
+  imageUrl      String?
+  isActive      Boolean       @default(true)
+  sortOrder     Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relations
+  briefLines  BriefLine[]
+
+  @@map("products")
+}
+
+model Brief {
+  id        String      @id @default(cuid())
+  storeId   String
+  userId    String
+  status    BriefStatus @default(DRAFT)
+  totalHT   Float       @default(0)
+  notes     String?     // Notes internes du commercial
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  // Relations
+  store      Store           @relation(fields: [storeId], references: [id])
+  user       User            @relation(fields: [userId], references: [id])
+  lines      BriefLine[]
+  logistics  BriefLogistics?
+
+  @@map("briefs")
+}
+
+model BriefLine {
+  id            String   @id @default(cuid())
+  briefId       String
+  productId     String?  // Null pour les prestations hors catalogue
+  customName    String?  // Nom libre pour les hors catalogue
+  quantity      Int      @default(1)
+  // Dimensions personnalisées (peuvent différer des défauts produit)
+  width         Float?
+  height        Float?
+  selectedOption String? // Option sélectionnée (ex: "recto-verso")
+  unitPriceHT   Float
+  totalPriceHT  Float
+  isOutOfCatalogue Boolean @default(false)
+  attachmentUrl  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  brief   Brief    @relation(fields: [briefId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id])
+
+  @@map("brief_lines")
+}
+
+model BriefLogistics {
+  id                      String   @id @default(cuid())
+  briefId                 String   @unique
+  // Contacts
+  contactName             String
+  contactEmail            String
+  contactPhone            String
+  // Logistique
+  unloadingDock           Boolean  @default(false)
+  handlingEquipment       Boolean  @default(false)
+  requestedDeliveryWeek   String   // ex: "Semaine 12 - 2025"
+  // Installation
+  installationByGraphik   Boolean  @default(false)
+  requestedInstallationDate DateTime?
+  // Plan uploadé
+  uploadedPlanUrl         String?
+  uploadedPlanName        String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  // Relations
+  brief Brief @relation(fields: [briefId], references: [id], onDelete: Cascade)
+
+  @@map("brief_logistics")
+}
+
+// ─────────────────────────────────────────────
+// AUTH (NextAuth.js v5)
+// ─────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+
+model ConnectionLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt(sort: Desc)])
+}

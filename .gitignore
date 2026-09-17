@@ -1,0 +1,12 @@
+# Système
+.DS_Store
+Thumbs.db
+
+# Outils agents (mémoire locale)
+ruvector.db
+.claude-flow/
+.swarm/
+
+# Secrets
+.env
+.env.local
